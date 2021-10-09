@@ -17,19 +17,28 @@ import logging
 import datetime
 import pandas as pd
 
+# Parallel network model structure
+class Parallel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.cnn=Cnn_Transformer(4)
+        self.Transformerr=Transformer_Encoder(4)
+        self.Transformerr.load_state_dict(torch.load(path))
+        self.fc1_linear = nn.Linear(1576, 4)
+        self.softmax_out = nn.Softmax(dim=1)
 
+    def forward(self, x,x_next):
+        x1,x2,x3=self.cnn(x)
+        y1,y2,y3=self.Transformerr(x_next)
+        complete_embedding = torch.cat([y3, x3], dim=1)  # trans
+        output_logits = self.fc1_linear(complete_embedding)
+        output_softmax = self.softmax_out(output_logits)
+        return output_logits, output_softmax
+
+# Structure of Convolutional Neural Network in Parallel Network Model
 class Cnn_Transformer(nn.Module):
     def __init__(self, num_emotions):
         super().__init__()
-        self.transformer_maxpool = nn.MaxPool2d(kernel_size=[1, 4], stride=[1, 4])
-        transformer_layer = nn.TransformerEncoderLayer(
-            d_model=40,
-            nhead=4,
-            dim_feedforward=512,
-            dropout=0.5,
-            activation='relu'
-        )
-        self.transformer_encoder = nn.TransformerEncoder(transformer_layer, num_layers=5)
         self.conv2Dblock1 = nn.Sequential(
             nn.Conv2d(in_channels=1,  out_channels=16,  kernel_size=3,  stride=1, padding=1),
             nn.BatchNorm2d(16),
@@ -50,34 +59,54 @@ class Cnn_Transformer(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2),
 
 
-            nn.Conv2d(in_channels=64, out_channels=80, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(80),
+            nn.Conv2d(in_channels=64, out_channels=96, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(96),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
-            nn.Conv2d(in_channels=80, out_channels=130, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(130),
+            nn.Conv2d(in_channels=96, out_channels=128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Dropout(p=0.5),
         )
-        self.fc1_linear = nn.Linear(820, num_emotions)
+        self.fc1_linear = nn.Linear(1536, num_emotions)
         self.softmax_out = nn.Softmax(dim=1)
 
     def forward(self, x):     # 输入的形状为32*1*40*63
         conv2d_embedding1 = self.conv2Dblock1(x)   #  conv2d_embedding1为 32*130*2*3
         conv2d_embedding1 = torch.flatten(conv2d_embedding1, start_dim=1) #  conv2d_embedding1为 32*780
+        output_logits = self.fc1_linear(conv2d_embedding1)
+        output_softmax = self.softmax_out(output_logits)
+        return output_logits, output_softmax, conv2d_embedding1
+
+# The structure of Transformer-encoder in parallel network model
+class Transformer_Encoder(nn.Module):
+    def __init__(self, num_emotions):
+        super().__init__()
+        self.transformer_maxpool = nn.MaxPool2d(kernel_size=[1, 4], stride=[1, 4])
+        transformer_layer = nn.TransformerEncoderLayer(
+            d_model=40,
+            nhead=4,
+            dim_feedforward=512,
+            dropout=0.5,
+            activation='relu'
+        )
+        self.transformer_encoder = nn.TransformerEncoder(transformer_layer, num_layers=6)
+        self.fc1_linear = nn.Linear(40, num_emotions)
+        self.softmax_out = nn.Softmax(dim=1)
+
+    def forward(self, x):     # 输入的形状为32*1*40*63
         x_maxpool = self.transformer_maxpool(x)   # x_maxpool为32*1*40*15
         x_maxpool_reduced = torch.squeeze(x_maxpool, 1)  # x_maxpool_reduced为32*40*15
         x = x_maxpool_reduced.permute(2, 0, 1)  # x 为 15*32*40
         transformer_output = self.transformer_encoder(x) #  transformer_output 15*32*40
         transformer_embedding = torch.mean(transformer_output, dim=0)  #  transformer_embedding 32*40
-        complete_embedding = torch.cat([conv2d_embedding1, transformer_embedding], dim=1) #  transformer_embedding 32*820
-        output_logits = self.fc1_linear(complete_embedding)
+        output_logits = self.fc1_linear(transformer_embedding)
         output_softmax = self.softmax_out(output_logits)
-        return output_logits, output_softmax
+        return output_logits, output_softmax, transformer_embedding
 
-# 设定随机种子，使每一次的随机数都是一样的
+# Set the random seed so that the random number is the same every time
 def setup_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -85,28 +114,36 @@ def setup_seed(seed):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
 
+
 if __name__ == '__main__':
     SEED = 0
     setup_seed(SEED)
     attention_head = 4
     attention_hidden = 32
     learning_rate = 0.001
-    Epochs = 50
+    Epochs = 80
     BATCH_SIZE = 32
-    FEATURES_TO_USE = 'mfcc'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'}
+    FEATURES_TO_USE = 'logfbank'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'} 用于cnn的特征
+    FEATURES_TO_USE_NEXT = 'mfcc'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'} 用于transformer的特征
     impro_or_script = 'impro'
-    featuresFileName_Ravdess = 'features_{}_Ravdess.pkl'.format(FEATURES_TO_USE)
-    featuresFileName = 'features_{}_{}.pkl'.format(FEATURES_TO_USE, impro_or_script)
+    # featuresFileName_Ravdess = 'features_{}_Ravdess.pkl'.format(FEATURES_TO_USE)
+    # Processed dataset
+    featuresFileName = 'features_{}_{}_1.pkl'.format(FEATURES_TO_USE, impro_or_script)
     featuresExist = True
     toSaveFeatures = True
+    # The storage location of IEMOCAP dataset
     WAV_PATH = "D:\Download\IEMOCAP/"
     # WAV_PATH = "D:/ravdess/Actor_*/"
     RATE = 16000
+    # The location of the pretrained model
+    path = 'models/augment_6.pth'
     MODEL_NAME_1 = 'HeadFusion-{}'.format(SEED)
     MODEL_NAME_2 = 'CNN_Transformer-{}'.format(SEED)
-    MODEL_PATH = 'models/{}_{}.pth'.format(MODEL_NAME_2, FEATURES_TO_USE)
+    MODEL_NAME_3 = 'augment-{}'.format(SEED)
+    # Store parallel model
+    MODEL_PATH = 'models/{}_{}.pth'.format(MODEL_NAME_3, FEATURES_TO_USE)
 
-    # 数据处理
+    # data processing
     def process_data(path, t=2, train_overlap=1, val_overlap=1.6, RATE=16000, dataset='iemocap'):
         path = path.rstrip('/')
         wav_files = glob.glob(path + '/*.wav')
@@ -145,7 +182,6 @@ if __name__ == '__main__':
             valid_files.append(wav_files[i])
 
         print("constructing meta dictionary for {}...".format(path))
-        # 处理训练集里面的数据
         for i, wav_file in enumerate(tqdm(train_files)):
             label = str(os.path.basename(wav_file).split('-')[2])
             if (dataset == 'iemocap'):
@@ -183,7 +219,7 @@ if __name__ == '__main__':
         for k in meta_dict:
             train_X.append(meta_dict[k]['X'])
             train_y += meta_dict[k]['y']
-        train_X = np.row_stack(train_X)  # 分为每一个的合并
+        train_X = np.row_stack(train_X)
         train_y = np.array(train_y)
         assert len(train_X) == len(train_y), "X length and y length must match! X shape: {}, y length: {}".format(
             train_X.shape, train_y.shape)
@@ -222,7 +258,7 @@ if __name__ == '__main__':
 
         return train_X, train_y, val_dict
 
-    # 特征处理
+    # Extract features
     class FeatureExtractor(object):
         def __init__(self, rate):
             self.rate = rate
@@ -249,7 +285,7 @@ if __name__ == '__main__':
         def get_logfbank(self, X):
             def _get_logfbank(x):
                 out = logfbank(signal=x, samplerate=self.rate, winlen=0.040, winstep=0.010, nfft=1024, highfreq=4000,
-                               nfilt=40)
+                               nfilt=20)
                 return out
 
             X_features = np.apply_along_axis(_get_logfbank, 1, X)
@@ -293,11 +329,12 @@ if __name__ == '__main__':
         def get_Pase(self, X):
             return X
 
-
+    # Read pkl file and generate pkl file
     if (featuresExist == True):
         with open(featuresFileName, 'rb')as f:
             features = pickle.load(f)
         train_X_features = features['train_X']
+        train_X_features_NEXT = features['train_X_next']
         train_y = features['train_y']
         valid_features_dict = features['val_dict']
     else:
@@ -310,19 +347,22 @@ if __name__ == '__main__':
         logging.info('getting features')
         feature_extractor = FeatureExtractor(rate=RATE)
         train_X_features = feature_extractor.get_features(FEATURES_TO_USE, train_X)
-        valid_features_dict = {}
+        train_X_features_NEXT = feature_extractor.get_features(FEATURES_TO_USE_NEXT, train_X)
+        valid_features_dict = {}  # Used to store various features extracted from the validation set
         for _, i in enumerate(val_dict):
             X1 = feature_extractor.get_features(FEATURES_TO_USE, val_dict[i]['X'])
+            X1_NEXT = feature_extractor.get_features(FEATURES_TO_USE_NEXT, val_dict[i]['X'])
             valid_features_dict[i] = {
                 'X': X1,
+                'X_NEXT': X1_NEXT,
                 'y': val_dict[i]['y']
             }
         if (toSaveFeatures == True):
-            features = {'train_X': train_X_features, 'train_y': train_y,
+            features = {'train_X': train_X_features, 'train_X_next': train_X_features_NEXT, 'train_y': train_y,
                         'val_dict': valid_features_dict}
             with open(featuresFileName, 'wb') as f:
                 pickle.dump(features, f)
-    # 用于分类时的标签
+    # Tag dictionary
     dict = {
         'neutral': torch.Tensor([0]),
         'happy': torch.Tensor([1]),
@@ -343,45 +383,46 @@ if __name__ == '__main__':
         'fearful': torch.Tensor([6]),
         'disgust': torch.Tensor([7]),
     }
-    # 数据读取
+    # Define data reading class
     class DataSet(Dataset):
-        def __init__(self, X, Y):
+        def __init__(self, X, X_NEXT, Y):
             self.X = X
+            self.X_NEXT = X_NEXT
             self.Y = Y
 
         def __getitem__(self, index):
             x = self.X[index]
+            x_next = self.X_NEXT[index]
             # x = torch.from_numpy(x).unsqueeze(0)
             x = torch.from_numpy(x)
+            x_next = torch.from_numpy(x_next)
             x = x.float()
+            x_next = x_next.float()
             y = self.Y[index]
             y = dict[y]
             y = y.long()
-            return x, y
+            return x, x_next, y
 
         def __len__(self):
             return len(self.X)
 
-
+    # Create a build log file
     logger = logging.getLogger()
-    logger.setLevel(logging.INFO)  # Log等级总开关
-    # 第二步，创建一个handler，用于写入日志文件
-
+    logger.setLevel(logging.INFO)
     log_name = 'test-result/seed-{}.log'.format(SEED)
     logfile = log_name
     fh = logging.FileHandler(logfile, mode='w')
-    fh.setLevel(logging.DEBUG)  # 输出到file的log等级的开关
-    # 第三步，定义handler的输出格式
+    fh.setLevel(logging.DEBUG)
     formatter = logging.Formatter("%(asctime)s - %(filename)s[line:%(lineno)d] - %(levelname)s: %(message)s")
     fh.setFormatter(formatter)
-    # 第四步，将logger添加到handler里面
     logger.addHandler(fh)
 
-    train_data = DataSet(train_X_features, train_y)
+    # Test set data reading and model training
+    train_data = DataSet(train_X_features,train_X_features_NEXT, train_y)
     train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
 
     # model = HeadFusion(attention_head, attention_hidden, 4)
-    model = Cnn_Transformer(num_emotions = 4)
+    model = Parallel()
     if torch.cuda.is_available():
         model = model.cuda()
     criterion = nn.CrossEntropyLoss()
@@ -393,11 +434,12 @@ if __name__ == '__main__':
         model.train()
         print_loss = 0
         for _, data in enumerate(train_loader):
-            x, y = data
+            x,x_next,y = data
             if torch.cuda.is_available():
                 x = x.cuda()
+                x_next = x_next.cuda()
                 y = y.cuda()
-            out, _ = model(x.unsqueeze(1))
+            out, _ = model(x.unsqueeze(1),x_next.unsqueeze(1))
             loss = criterion(out, y.squeeze(1))
             print_loss += loss.data.item() * BATCH_SIZE
             optimizer.zero_grad()
@@ -421,16 +463,20 @@ if __name__ == '__main__':
         # class_total = [0, 0, 0, 0, 0, 0, 0, 0]
         # matrix = np.mat(np.zeros((8, 8)), dtype=int)
         for _, i in enumerate(valid_features_dict):
-            x, y = valid_features_dict[i]['X'], valid_features_dict[i]['y']
+            x,x_next, y = valid_features_dict[i]['X'], valid_features_dict[i]['X_NEXT'], valid_features_dict[i]['y']
             x = torch.from_numpy(x).float()
+            x_next = torch.from_numpy(x_next).float()
             y = dict[y[0]].long()
             if torch.cuda.is_available():
                 x = x.cuda()
+                x_next = x_next.cuda()
                 y = y.cuda()
             if (x.size(0) == 1):
                 x = torch.cat((x, x), 0)
+            if (x_next.size(0) == 1):
+                x_next = torch.cat((x_next, x_next), 0)
             # out, _ = model(x.unsqueeze(1))
-            _, out = model(x.unsqueeze(1))
+            _, out = model(x.unsqueeze(1),x_next.unsqueeze(1))
             # out = model(x)
             pred = torch.Tensor([0, 0, 0, 0])
             # pred = torch.Tensor([0, 0, 0, 0, 0, 0, 0, 0])
@@ -466,23 +512,3 @@ if __name__ == '__main__':
 
         print(matrix)
 
-    # del model
-
-    # model = MACNN(attention_head, attention_hidden, 4)
-    # model.load_state_dict(torch.load(MODEL_PATH))
-    # model=model.cuda()
-    #
-    # with open(WAV_PATH + '/IEMOCAP_bitest_{}.csv'.format(SEED)) as f:
-    #     fr=f.readlines()
-    #     for line in tqdm(fr):
-    #         filename=line.split('\t')[2]
-    #         wav,_=librosa.load(WAV_PATH+filename,RATE)
-    #         w_len=len(wav)
-    #         if w_len<=2*RATE+1:
-    #             continue
-    #         wav=wav[int(w_len/2)-RATE:int(w_len/2)+RATE]
-    #         feature = librosa.feature.mfcc(wav, sr=RATE, n_mfcc=26)
-    #         feature=torch.from_numpy(feature).cuda()
-    #         feature=feature.reshape(1,1,feature.shape[0],feature.shape[1])
-    #         _,hidden=model(feature)
-    #         np.save('./iemocap/111111/test/{}.npy'.format(filename),hidden.cpu().detach().numpy())
