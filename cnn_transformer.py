@@ -18,27 +18,18 @@ import datetime
 import pandas as pd
 
 # Parallel network model structure
-class Parallel(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.cnn=Cnn_Transformer(4)
-        self.Transformerr=Transformer_Encoder(4)
-        self.Transformerr.load_state_dict(torch.load(path))
-        self.fc1_linear = nn.Linear(1576, 4)
-        self.softmax_out = nn.Softmax(dim=1)
-
-    def forward(self, x,x_next):
-        x1,x2,x3=self.cnn(x)
-        y1,y2,y3=self.Transformerr(x_next)
-        complete_embedding = torch.cat([y3, x3], dim=1)  # trans
-        output_logits = self.fc1_linear(complete_embedding)
-        output_softmax = self.softmax_out(output_logits)
-        return output_logits, output_softmax
-
-# Structure of Convolutional Neural Network in Parallel Network Model
 class Cnn_Transformer(nn.Module):
     def __init__(self, num_emotions):
         super().__init__()
+        self.transformer_maxpool = nn.MaxPool2d(kernel_size=[1, 4], stride=[1, 4])
+        transformer_layer = nn.TransformerEncoderLayer(
+            d_model=40,
+            nhead=4,
+            dim_feedforward=512,
+            dropout=0.5,
+            activation='relu'
+        )
+        self.transformer_encoder = nn.TransformerEncoder(transformer_layer, num_layers=1)
         self.conv2Dblock1 = nn.Sequential(
             nn.Conv2d(in_channels=1,  out_channels=16,  kernel_size=3,  stride=1, padding=1),
             nn.BatchNorm2d(16),
@@ -58,7 +49,6 @@ class Cnn_Transformer(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
-
             nn.Conv2d(in_channels=64, out_channels=96, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(96),
             nn.ReLU(),
@@ -70,41 +60,22 @@ class Cnn_Transformer(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Dropout(p=0.5),
         )
-        self.fc1_linear = nn.Linear(1536, num_emotions)
+        self.fc1_linear = nn.Linear(1576, num_emotions)  # 1576
         self.softmax_out = nn.Softmax(dim=1)
 
-    def forward(self, x):     # 输入的形状为32*1*40*63
+    def forward(self, x, x_next):     # input shape 32*1*40*63
         conv2d_embedding1 = self.conv2Dblock1(x)   #  conv2d_embedding1为 32*130*2*3
         conv2d_embedding1 = torch.flatten(conv2d_embedding1, start_dim=1) #  conv2d_embedding1为 32*780
-        output_logits = self.fc1_linear(conv2d_embedding1)
-        output_softmax = self.softmax_out(output_logits)
-        return output_logits, output_softmax, conv2d_embedding1
-
-# The structure of Transformer-encoder in parallel network model
-class Transformer_Encoder(nn.Module):
-    def __init__(self, num_emotions):
-        super().__init__()
-        self.transformer_maxpool = nn.MaxPool2d(kernel_size=[1, 4], stride=[1, 4])
-        transformer_layer = nn.TransformerEncoderLayer(
-            d_model=40,
-            nhead=4,
-            dim_feedforward=512,
-            dropout=0.5,
-            activation='relu'
-        )
-        self.transformer_encoder = nn.TransformerEncoder(transformer_layer, num_layers=6)
-        self.fc1_linear = nn.Linear(40, num_emotions)
-        self.softmax_out = nn.Softmax(dim=1)
-
-    def forward(self, x):     # 输入的形状为32*1*40*63
-        x_maxpool = self.transformer_maxpool(x)   # x_maxpool为32*1*40*15
+        x_maxpool = self.transformer_maxpool(x_next)   # x_maxpool为32*1*40*15
         x_maxpool_reduced = torch.squeeze(x_maxpool, 1)  # x_maxpool_reduced为32*40*15
-        x = x_maxpool_reduced.permute(2, 0, 1)  # x 为 15*32*40
-        transformer_output = self.transformer_encoder(x) #  transformer_output 15*32*40
+        x_next = x_maxpool_reduced.permute(2, 0, 1)  # x 为 15*32*40
+        transformer_output = self.transformer_encoder(x_next) #  transformer_output 15*32*40
         transformer_embedding = torch.mean(transformer_output, dim=0)  #  transformer_embedding 32*40
-        output_logits = self.fc1_linear(transformer_embedding)
+        complete_embedding = torch.cat([conv2d_embedding1, transformer_embedding], dim=1) #  transformer_embedding 32*820
+        #, transformer_embedding conv2d_embedding1,
+        output_logits = self.fc1_linear(complete_embedding)
         output_softmax = self.softmax_out(output_logits)
-        return output_logits, output_softmax, transformer_embedding
+        return output_logits, output_softmax
 
 # Set the random seed so that the random number is the same every time
 def setup_seed(seed):
@@ -114,41 +85,40 @@ def setup_seed(seed):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
 
-
 if __name__ == '__main__':
     SEED = 0
     setup_seed(SEED)
     attention_head = 4
     attention_hidden = 32
     learning_rate = 0.001
-    Epochs = 80
+    Epochs = 50
     BATCH_SIZE = 32
     FEATURES_TO_USE = 'logfbank'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'} 用于cnn的特征
-    FEATURES_TO_USE_NEXT = 'mfcc'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'} 用于transformer的特征
+    FEATURES_TO_USE_NEXT = 'logfbank'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'} 用于transformer的特征
     impro_or_script = 'impro'
-    # featuresFileName_Ravdess = 'features_{}_Ravdess.pkl'.format(FEATURES_TO_USE)
     # Processed dataset
+    featuresFileName_Ravdess = 'features_{}_Ravdess.pkl'.format(FEATURES_TO_USE)
     featuresFileName = 'features_{}_{}_1.pkl'.format(FEATURES_TO_USE, impro_or_script)
     featuresExist = True
     toSaveFeatures = True
     # The storage location of IEMOCAP dataset
     WAV_PATH = "D:\Download\IEMOCAP/"
     # WAV_PATH = "D:/ravdess/Actor_*/"
-    RATE = 16000
     # The location of the pretrained model
-    path = 'models/augment_6.pth'
+    path = 'models/augment_3.pth'
+    RATE = 16000
     MODEL_NAME_1 = 'HeadFusion-{}'.format(SEED)
     MODEL_NAME_2 = 'CNN_Transformer-{}'.format(SEED)
-    MODEL_NAME_3 = 'augment-{}'.format(SEED)
     # Store parallel model
-    MODEL_PATH = 'models/{}_{}.pth'.format(MODEL_NAME_3, FEATURES_TO_USE)
+    MODEL_PATH = 'models/{}_{}.pth'.format(MODEL_NAME_2, FEATURES_TO_USE)
 
     # data processing
     def process_data(path, t=2, train_overlap=1, val_overlap=1.6, RATE=16000, dataset='iemocap'):
         path = path.rstrip('/')
         wav_files = glob.glob(path + '/*.wav')
-        meta_dict = {}
-        val_dict = {}
+        wav_files_aug = glob.glob(path + '/*.wav.5')
+        meta_dict = {}    # 训练集数据
+        val_dict = {}     # 验证集数据
         IEMOCAP_LABEL = {
             '01': 'neutral',
             # '02': 'frustration',
@@ -178,11 +148,14 @@ if __name__ == '__main__':
         # for i in train_indices:
         for i in train_indices:
             train_files.append(wav_files[i])
+            train_files.append(wav_files_aug[i])
         for i in valid_indices:
             valid_files.append(wav_files[i])
 
+
         print("constructing meta dictionary for {}...".format(path))
-        for i, wav_file in enumerate(tqdm(train_files)):
+        # 处理训练集里面的数据
+        for i, wav_file in enumerate(tqdm(train_files)):   # 对于训练用的数据进行一系列的处理
             label = str(os.path.basename(wav_file).split('-')[2])
             if (dataset == 'iemocap'):
                 if (label not in IEMOCAP_LABEL):
@@ -219,7 +192,7 @@ if __name__ == '__main__':
         for k in meta_dict:
             train_X.append(meta_dict[k]['X'])
             train_y += meta_dict[k]['y']
-        train_X = np.row_stack(train_X)
+        train_X = np.row_stack(train_X)  # 分为每一个的合并
         train_y = np.array(train_y)
         assert len(train_X) == len(train_y), "X length and y length must match! X shape: {}, y length: {}".format(
             train_X.shape, train_y.shape)
@@ -256,7 +229,7 @@ if __name__ == '__main__':
                 'path': wav_file
             }
 
-        return train_X, train_y, val_dict
+        return train_X, train_y, val_dict  # 输出训练集的两种原始的数据以及测试集的字典
 
     # Extract features
     class FeatureExtractor(object):
@@ -284,8 +257,8 @@ if __name__ == '__main__':
 
         def get_logfbank(self, X):
             def _get_logfbank(x):
-                out = logfbank(signal=x, samplerate=self.rate, winlen=0.040, winstep=0.010, nfft=1024, highfreq=4000,
-                               nfilt=20)
+                out = logfbank(signal=x, samplerate=self.rate,winlen=0.040, winstep=0.010, nfft=1024, highfreq=4000,
+                               nfilt=40)
                 return out
 
             X_features = np.apply_along_axis(_get_logfbank, 1, X)
@@ -329,7 +302,7 @@ if __name__ == '__main__':
         def get_Pase(self, X):
             return X
 
-    # Read pkl file and generate pkl file
+
     if (featuresExist == True):
         with open(featuresFileName, 'rb')as f:
             features = pickle.load(f)
@@ -347,11 +320,11 @@ if __name__ == '__main__':
         logging.info('getting features')
         feature_extractor = FeatureExtractor(rate=RATE)
         train_X_features = feature_extractor.get_features(FEATURES_TO_USE, train_X)
-        train_X_features_NEXT = feature_extractor.get_features(FEATURES_TO_USE_NEXT, train_X)
-        valid_features_dict = {}  # Used to store various features extracted from the validation set
+        train_X_features_NEXT = feature_extractor.get_features(FEATURES_TO_USE_NEXT,train_X)
+        valid_features_dict = {}  # 用来存放验证集提取好的各种特征
         for _, i in enumerate(val_dict):
             X1 = feature_extractor.get_features(FEATURES_TO_USE, val_dict[i]['X'])
-            X1_NEXT = feature_extractor.get_features(FEATURES_TO_USE_NEXT, val_dict[i]['X'])
+            X1_NEXT = feature_extractor.get_features(FEATURES_TO_USE_NEXT,val_dict[i]['X'])
             valid_features_dict[i] = {
                 'X': X1,
                 'X_NEXT': X1_NEXT,
@@ -362,6 +335,7 @@ if __name__ == '__main__':
                         'val_dict': valid_features_dict}
             with open(featuresFileName, 'wb') as f:
                 pickle.dump(features, f)
+
     # Tag dictionary
     dict = {
         'neutral': torch.Tensor([0]),
@@ -383,9 +357,10 @@ if __name__ == '__main__':
         'fearful': torch.Tensor([6]),
         'disgust': torch.Tensor([7]),
     }
+
     # Define data reading class
     class DataSet(Dataset):
-        def __init__(self, X, X_NEXT, Y):
+        def __init__(self, X,X_NEXT, Y):
             self.X = X
             self.X_NEXT = X_NEXT
             self.Y = Y
@@ -401,7 +376,7 @@ if __name__ == '__main__':
             y = self.Y[index]
             y = dict[y]
             y = y.long()
-            return x, x_next, y
+            return x,x_next,y
 
         def __len__(self):
             return len(self.X)
@@ -416,13 +391,13 @@ if __name__ == '__main__':
     formatter = logging.Formatter("%(asctime)s - %(filename)s[line:%(lineno)d] - %(levelname)s: %(message)s")
     fh.setFormatter(formatter)
     logger.addHandler(fh)
-
+    
     # Test set data reading and model training
     train_data = DataSet(train_X_features,train_X_features_NEXT, train_y)
     train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
 
     # model = HeadFusion(attention_head, attention_hidden, 4)
-    model = Parallel()
+    model = Cnn_Transformer(num_emotions = 4)
     if torch.cuda.is_available():
         model = model.cuda()
     criterion = nn.CrossEntropyLoss()
@@ -434,7 +409,7 @@ if __name__ == '__main__':
         model.train()
         print_loss = 0
         for _, data in enumerate(train_loader):
-            x,x_next,y = data
+            x,x_next, y = data
             if torch.cuda.is_available():
                 x = x.cuda()
                 x_next = x_next.cuda()
