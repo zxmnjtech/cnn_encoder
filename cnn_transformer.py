@@ -63,15 +63,15 @@ class Cnn_Transformer(nn.Module):
         self.fc1_linear = nn.Linear(1576, num_emotions)  # 1576
         self.softmax_out = nn.Softmax(dim=1)
 
-    def forward(self, x, x_next):     # input shape 32*1*40*63
-        conv2d_embedding1 = self.conv2Dblock1(x)   #  conv2d_embedding1为 32*130*2*3
-        conv2d_embedding1 = torch.flatten(conv2d_embedding1, start_dim=1) #  conv2d_embedding1为 32*780
-        x_maxpool = self.transformer_maxpool(x_next)   # x_maxpool为32*1*40*15
-        x_maxpool_reduced = torch.squeeze(x_maxpool, 1)  # x_maxpool_reduced为32*40*15
-        x_next = x_maxpool_reduced.permute(2, 0, 1)  # x 为 15*32*40
-        transformer_output = self.transformer_encoder(x_next) #  transformer_output 15*32*40
-        transformer_embedding = torch.mean(transformer_output, dim=0)  #  transformer_embedding 32*40
-        complete_embedding = torch.cat([conv2d_embedding1, transformer_embedding], dim=1) #  transformer_embedding 32*820
+    def forward(self, x, x_next):     # input both features at the same time
+        conv2d_embedding1 = self.conv2Dblock1(x)   
+        conv2d_embedding1 = torch.flatten(conv2d_embedding1, start_dim=1) 
+        x_maxpool = self.transformer_maxpool(x_next)   
+        x_maxpool_reduced = torch.squeeze(x_maxpool, 1)  
+        x_next = x_maxpool_reduced.permute(2, 0, 1)  
+        transformer_output = self.transformer_encoder(x_next) 
+        transformer_embedding = torch.mean(transformer_output, dim=0)  
+        complete_embedding = torch.cat([conv2d_embedding1, transformer_embedding], dim=1) 
         #, transformer_embedding conv2d_embedding1,
         output_logits = self.fc1_linear(complete_embedding)
         output_softmax = self.softmax_out(output_logits)
@@ -117,8 +117,8 @@ if __name__ == '__main__':
         path = path.rstrip('/')
         wav_files = glob.glob(path + '/*.wav')
         wav_files_aug = glob.glob(path + '/*.wav.5')
-        meta_dict = {}    # 训练集数据
-        val_dict = {}     # 验证集数据
+        meta_dict = {}    
+        val_dict = {}     
         IEMOCAP_LABEL = {
             '01': 'neutral',
             # '02': 'frustration',
@@ -154,8 +154,8 @@ if __name__ == '__main__':
 
 
         print("constructing meta dictionary for {}...".format(path))
-        # 处理训练集里面的数据
-        for i, wav_file in enumerate(tqdm(train_files)):   # 对于训练用的数据进行一系列的处理
+        # Process the data in the training set
+        for i, wav_file in enumerate(tqdm(train_files)):  
             label = str(os.path.basename(wav_file).split('-')[2])
             if (dataset == 'iemocap'):
                 if (label not in IEMOCAP_LABEL):
@@ -192,7 +192,7 @@ if __name__ == '__main__':
         for k in meta_dict:
             train_X.append(meta_dict[k]['X'])
             train_y += meta_dict[k]['y']
-        train_X = np.row_stack(train_X)  # 分为每一个的合并
+        train_X = np.row_stack(train_X)  
         train_y = np.array(train_y)
         assert len(train_X) == len(train_y), "X length and y length must match! X shape: {}, y length: {}".format(
             train_X.shape, train_y.shape)
@@ -229,7 +229,7 @@ if __name__ == '__main__':
                 'path': wav_file
             }
 
-        return train_X, train_y, val_dict  # 输出训练集的两种原始的数据以及测试集的字典
+        return train_X, train_y, val_dict  
 
     # Extract features
     class FeatureExtractor(object):
@@ -321,7 +321,7 @@ if __name__ == '__main__':
         feature_extractor = FeatureExtractor(rate=RATE)
         train_X_features = feature_extractor.get_features(FEATURES_TO_USE, train_X)
         train_X_features_NEXT = feature_extractor.get_features(FEATURES_TO_USE_NEXT,train_X)
-        valid_features_dict = {}  # 用来存放验证集提取好的各种特征
+        valid_features_dict = {}  # Used to store various features extracted from the validation set
         for _, i in enumerate(val_dict):
             X1 = feature_extractor.get_features(FEATURES_TO_USE, val_dict[i]['X'])
             X1_NEXT = feature_extractor.get_features(FEATURES_TO_USE_NEXT,val_dict[i]['X'])
