@@ -73,9 +73,9 @@ class Cnn_Transformer(nn.Module):
         self.fc1_linear = nn.Linear(1536, num_emotions)
         self.softmax_out = nn.Softmax(dim=1)
 
-    def forward(self, x):     # 输入的形状为32*1*40*63
-        conv2d_embedding1 = self.conv2Dblock1(x)   #  conv2d_embedding1为 32*130*2*3
-        conv2d_embedding1 = torch.flatten(conv2d_embedding1, start_dim=1) #  conv2d_embedding1为 32*780
+    def forward(self, x):     
+        conv2d_embedding1 = self.conv2Dblock1(x)  
+        conv2d_embedding1 = torch.flatten(conv2d_embedding1, start_dim=1) 
         output_logits = self.fc1_linear(conv2d_embedding1)
         output_softmax = self.softmax_out(output_logits)
         return output_logits, output_softmax, conv2d_embedding1
@@ -96,12 +96,12 @@ class Transformer_Encoder(nn.Module):
         self.fc1_linear = nn.Linear(40, num_emotions)
         self.softmax_out = nn.Softmax(dim=1)
 
-    def forward(self, x):     # 输入的形状为32*1*40*63
-        x_maxpool = self.transformer_maxpool(x)   # x_maxpool为32*1*40*15
-        x_maxpool_reduced = torch.squeeze(x_maxpool, 1)  # x_maxpool_reduced为32*40*15
-        x = x_maxpool_reduced.permute(2, 0, 1)  # x 为 15*32*40
-        transformer_output = self.transformer_encoder(x) #  transformer_output 15*32*40
-        transformer_embedding = torch.mean(transformer_output, dim=0)  #  transformer_embedding 32*40
+    def forward(self, x):     
+        x_maxpool = self.transformer_maxpool(x)  
+        x_maxpool_reduced = torch.squeeze(x_maxpool, 1)  
+        x = x_maxpool_reduced.permute(2, 0, 1) 
+        transformer_output = self.transformer_encoder(x) 
+        transformer_embedding = torch.mean(transformer_output, dim=0)  
         output_logits = self.fc1_linear(transformer_embedding)
         output_softmax = self.softmax_out(output_logits)
         return output_logits, output_softmax, transformer_embedding
