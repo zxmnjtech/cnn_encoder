@@ -30,7 +30,7 @@ class Parallel(nn.Module):
     def forward(self, x,x_next):
         x1,x2,x3=self.cnn(x)
         y1,y2,y3=self.Transformerr(x_next)
-        complete_embedding = torch.cat([y3, x3], dim=1)  # trans
+        complete_embedding = torch.cat([y3, x3], dim=1)  
         output_logits = self.fc1_linear(complete_embedding)
         output_softmax = self.softmax_out(output_logits)
         return output_logits, output_softmax
@@ -123,8 +123,8 @@ if __name__ == '__main__':
     learning_rate = 0.001
     Epochs = 80
     BATCH_SIZE = 32
-    FEATURES_TO_USE = 'logfbank'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'} 用于cnn的特征
-    FEATURES_TO_USE_NEXT = 'mfcc'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'} 用于transformer的特征
+    FEATURES_TO_USE = 'logfbank'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'} Features used for cnn
+    FEATURES_TO_USE_NEXT = 'mfcc'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'} Features used for encoder
     impro_or_script = 'impro'
     # featuresFileName_Ravdess = 'features_{}_Ravdess.pkl'.format(FEATURES_TO_USE)
     # Processed dataset
