@@ -128,7 +128,7 @@ if __name__ == '__main__':
     impro_or_script = 'impro'
     # featuresFileName_Ravdess = 'features_{}_Ravdess.pkl'.format(FEATURES_TO_USE)
     # Processed dataset
-    featuresFileName = 'features_{}_{}_1.pkl'.format(FEATURES_TO_USE, impro_or_script)
+    featuresFileName = 'features_{}_{}_2.pkl'.format(FEATURES_TO_USE, impro_or_script)
     featuresExist = True
     toSaveFeatures = True
     # The storage location of IEMOCAP dataset
