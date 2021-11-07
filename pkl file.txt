@@ -1,5 +1,5 @@
-Link：https://pan.baidu.com/s/1ujq2-hPJeOQl9KhMup2UKg 
-Extraction code：oxju
+Link：https://pan.baidu.com/s/1KYN6mnCu2A-9r-IcDqeBKw  
+Extraction code：pqdl
 
 Data set pkl file：
 features_mfcc_impro.pkl（Only extract MFCC features from the IEMOCAP unenhanced data set）
@@ -7,5 +7,7 @@ features_logfbank_impro.pkl（Extract MFCC features and logMel features from IEM
 features_logfbank_impro_1.pkl（Extract MFCC features and logMel features from the IEMOCAP enhanced data set）
 features_logfbank_impro_2.pkl（Extract MFCC features and logMel features from the IEMOCAP enhanced data set）
 features+labels.npy（Extract MFCC features from the RAVDESS dataset）
+
+
 
 
