@@ -73,12 +73,12 @@ class Cnn_Transformer(nn.Module):
         self.fc1_linear = nn.Linear(808, num_emotions)  # 1576
         self.softmax_out = nn.Softmax(dim=1)
 
-    def forward(self, x, x_next):  
+    def forward(self, x, x_next):
         conv2d_embedding1 = self.conv2Dblock1(x)  # conv2d_embedding1为 32*130*2*3
         conv2d_embedding1 = torch.flatten(conv2d_embedding1, start_dim=1)  # conv2d_embedding1为 32*780
         x_maxpool = self.transformer_maxpool(x_next)  # x_maxpool为32*1*40*15
         x_maxpool_reduced = torch.squeeze(x_maxpool, 1)  # x_maxpool_reduced为32*40*15
-        x_next = x_maxpool_reduced.permute(2, 0, 1) 
+        x_next = x_maxpool_reduced.permute(2, 0, 1)
         transformer_output = self.transformer_encoder(x_next)  # transformer_output 15*32*40
         transformer_embedding = torch.mean(transformer_output, dim=0)  # transformer_embedding 32*40
         complete_embedding = torch.cat([conv2d_embedding1, transformer_embedding],
@@ -131,8 +131,8 @@ if __name__ == '__main__':
         path = path.rstrip('/')
         wav_files = glob.glob(path + '/*.wav')
         wav_files_aug = glob.glob(path + '/*.wav.5')
-        meta_dict = {} 
-        val_dict = {}  
+        meta_dict = {}
+        val_dict = {}
         IEMOCAP_LABEL = {
             '01': 'neutral',
             # '02': 'frustration',
@@ -165,46 +165,46 @@ if __name__ == '__main__':
             '9': 'Ses05F',
             '10': 'Ses05M',
         }
-        fold1={
-            'Ses01F':'1',
-            'Ses04M':'8',
-        }
-        fold2={
-            'Ses04F':'7',
-            'Ses03M':'6',
-        }
-        fold3={
-            'Ses05F':'9',
-            'Ses01M':'2',
-        }
-        fold4={
-            'Ses03F':'5',
-            'Ses02M':'4',
-        }
-        fold5={
-            'Ses02F': '3',
-            'Ses05M':'10',
-        }
         # fold1={
         #     'Ses01F':'1',
-        #     'Ses01M':'2',
+        #     'Ses04M':'8',
         # }
         # fold2={
-        #     'Ses02F': '3',
-        #     'Ses02M': '4',
+        #     'Ses04F':'7',
+        #     'Ses03M':'6',
         # }
         # fold3={
-        #     'Ses03F': '5',
-        #     'Ses03M': '6',
+        #     'Ses05F':'9',
+        #     'Ses01M':'2',
         # }
         # fold4={
-        #     'Ses04F': '7',
-        #     'Ses04M': '8',
+        #     'Ses03F':'5',
+        #     'Ses02M':'4',
         # }
         # fold5={
-        #     'Ses05F': '9',
+        #     'Ses02F': '3',
         #     'Ses05M':'10',
         # }
+        fold1={
+            'Ses01F':'1',
+            'Ses01M':'2',
+        }
+        fold2={
+            'Ses02F': '3',
+            'Ses02M': '4',
+        }
+        fold3={
+            'Ses03F': '5',
+            'Ses03M': '6',
+        }
+        fold4={
+            'Ses04F': '7',
+            'Ses04M': '8',
+        }
+        fold5={
+            'Ses05F': '9',
+            'Ses05M':'10',
+        }
         n = len(wav_files)
         n_aug = len(wav_files_aug)
         print(n,n_aug)
@@ -263,7 +263,7 @@ if __name__ == '__main__':
 
         print("constructing meta dictionary for {}...".format(path))
 
-        for i, wav_file in enumerate(tqdm(train_files)):  
+        for i, wav_file in enumerate(tqdm(train_files)):
             label = str(os.path.basename(wav_file).split('-')[2])
             if (dataset == 'iemocap'):
                 if (label not in IEMOCAP_LABEL):
@@ -300,7 +300,7 @@ if __name__ == '__main__':
         for k in meta_dict:
             train_X.append(meta_dict[k]['X'])
             train_y += meta_dict[k]['y']
-        train_X = np.row_stack(train_X)  
+        train_X = np.row_stack(train_X)
         train_y = np.array(train_y)
         assert len(train_X) == len(train_y), "X length and y length must match! X shape: {}, y length: {}".format(
             train_X.shape, train_y.shape)
@@ -337,7 +337,7 @@ if __name__ == '__main__':
                 'path': wav_file
             }
 
-        return train_X, train_y, val_dict  
+        return train_X, train_y, val_dict
 
 
     # Extract features
@@ -430,7 +430,7 @@ if __name__ == '__main__':
         feature_extractor = FeatureExtractor(rate=RATE)
         train_X_features = feature_extractor.get_features(FEATURES_TO_USE, train_X)
         train_X_features_NEXT = feature_extractor.get_features(FEATURES_TO_USE_NEXT, train_X)
-        valid_features_dict = {} 
+        valid_features_dict = {}
         for _, i in enumerate(val_dict):
             X1 = feature_extractor.get_features(FEATURES_TO_USE, val_dict[i]['X'])
             X1_NEXT = feature_extractor.get_features(FEATURES_TO_USE_NEXT, val_dict[i]['X'])
