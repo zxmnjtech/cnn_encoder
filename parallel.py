@@ -17,68 +17,76 @@ import logging
 import datetime
 import pandas as pd
 
+
 # Parallel network model structure
 class Parallel(nn.Module):
     def __init__(self):
         super().__init__()
-        self.cnn=Cnn_Transformer(4)
-        self.Transformerr=Transformer_Encoder(4)
+        self.cnn = Cnn_Transformer(4)
+        self.Transformerr = Transformer_Encoder(4)
         self.Transformerr.load_state_dict(torch.load(path))
-        self.fc1_linear = nn.Linear(1576, 4)
+        self.fc1_linear = nn.Linear(808, 4)
         self.softmax_out = nn.Softmax(dim=1)
 
-    def forward(self, x,x_next):
-        x1,x2,x3=self.cnn(x)
-        y1,y2,y3=self.Transformerr(x_next)
-        complete_embedding = torch.cat([y3, x3], dim=1)  
+    def forward(self, x, x_next):
+        x1, x2, x3 = self.cnn(x)
+        y1, y2, y3 = self.Transformerr(x_next)
+        complete_embedding = torch.cat([y3, x3], dim=1)
         output_logits = self.fc1_linear(complete_embedding)
         output_softmax = self.softmax_out(output_logits)
         return output_logits, output_softmax
+
 
 # Structure of Convolutional Neural Network in Parallel Network Model
 class Cnn_Transformer(nn.Module):
     def __init__(self, num_emotions):
         super().__init__()
         self.conv2Dblock1 = nn.Sequential(
-            nn.Conv2d(in_channels=1,  out_channels=16,  kernel_size=3,  stride=1, padding=1),
+            nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(16),
             nn.ReLU(),
 
-            nn.Conv2d(in_channels=16, out_channels=32,  kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
+            # nn.MaxPool2d(kernel_size=2, stride=2),
 
-            nn.Conv2d(in_channels=32, out_channels=48, kernel_size=3,stride=1,padding=1),
-            nn.BatchNorm2d(48),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-
-            nn.Conv2d(in_channels=48, out_channels=64, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
+            nn.Conv2d(in_channels=64, out_channels=80, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(80),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
 
-            nn.Conv2d(in_channels=64, out_channels=96, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=80, out_channels=96, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(96),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
-            nn.Conv2d(in_channels=96, out_channels=128, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=96, out_channels=112, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(112),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+
+            nn.Conv2d(in_channels=112, out_channels=128, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Dropout(p=0.5),
         )
-        self.fc1_linear = nn.Linear(1536, num_emotions)
+        self.fc1_linear = nn.Linear(768, num_emotions)
         self.softmax_out = nn.Softmax(dim=1)
 
-    def forward(self, x):     
-        conv2d_embedding1 = self.conv2Dblock1(x)  
-        conv2d_embedding1 = torch.flatten(conv2d_embedding1, start_dim=1) 
+    def forward(self, x):
+        conv2d_embedding1 = self.conv2Dblock1(x)
+        conv2d_embedding1 = torch.flatten(conv2d_embedding1, start_dim=1)
         output_logits = self.fc1_linear(conv2d_embedding1)
         output_softmax = self.softmax_out(output_logits)
         return output_logits, output_softmax, conv2d_embedding1
+
 
 # The structure of Transformer-encoder in parallel network model
 class Transformer_Encoder(nn.Module):
@@ -87,24 +95,25 @@ class Transformer_Encoder(nn.Module):
         self.transformer_maxpool = nn.MaxPool2d(kernel_size=[1, 4], stride=[1, 4])
         transformer_layer = nn.TransformerEncoderLayer(
             d_model=40,
-            nhead=4,
+            nhead=8,
             dim_feedforward=512,
             dropout=0.5,
             activation='relu'
         )
-        self.transformer_encoder = nn.TransformerEncoder(transformer_layer, num_layers=6)
+        self.transformer_encoder = nn.TransformerEncoder(transformer_layer, num_layers=2)
         self.fc1_linear = nn.Linear(40, num_emotions)
         self.softmax_out = nn.Softmax(dim=1)
 
-    def forward(self, x):     
-        x_maxpool = self.transformer_maxpool(x)  
-        x_maxpool_reduced = torch.squeeze(x_maxpool, 1)  
-        x = x_maxpool_reduced.permute(2, 0, 1) 
-        transformer_output = self.transformer_encoder(x) 
-        transformer_embedding = torch.mean(transformer_output, dim=0)  
+    def forward(self, x):
+        x_maxpool = self.transformer_maxpool(x)
+        x_maxpool_reduced = torch.squeeze(x_maxpool, 1)
+        x = x_maxpool_reduced.permute(2, 0, 1)
+        transformer_output = self.transformer_encoder(x)
+        transformer_embedding = torch.mean(transformer_output, dim=0)
         output_logits = self.fc1_linear(transformer_embedding)
         output_softmax = self.softmax_out(output_logits)
         return output_logits, output_softmax, transformer_embedding
+
 
 # Set the random seed so that the random number is the same every time
 def setup_seed(seed):
@@ -121,14 +130,14 @@ if __name__ == '__main__':
     attention_head = 4
     attention_hidden = 32
     learning_rate = 0.001
-    Epochs = 80
+    Epochs = 50
     BATCH_SIZE = 32
     FEATURES_TO_USE = 'logfbank'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'} Features used for cnn
     FEATURES_TO_USE_NEXT = 'mfcc'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'} Features used for encoder
     impro_or_script = 'impro'
     # featuresFileName_Ravdess = 'features_{}_Ravdess.pkl'.format(FEATURES_TO_USE)
     # Processed dataset
-    featuresFileName = 'features_{}_{}_2.pkl'.format(FEATURES_TO_USE, impro_or_script)
+    featuresFileName = 'features_{}_{}_fold22aug.pkl'.format(FEATURES_TO_USE, impro_or_script)
     featuresExist = True
     toSaveFeatures = True
     # The storage location of IEMOCAP dataset
@@ -136,12 +145,13 @@ if __name__ == '__main__':
     # WAV_PATH = "D:/ravdess/Actor_*/"
     RATE = 16000
     # The location of the pretrained model
-    path = 'models/augment_6.pth'
+    path = 'models/augment2.pth'
     MODEL_NAME_1 = 'HeadFusion-{}'.format(SEED)
     MODEL_NAME_2 = 'CNN_Transformer-{}'.format(SEED)
     MODEL_NAME_3 = 'augment-{}'.format(SEED)
     # Store parallel model
     MODEL_PATH = 'models/{}_{}.pth'.format(MODEL_NAME_3, FEATURES_TO_USE)
+
 
     # data processing
     def process_data(path, t=2, train_overlap=1, val_overlap=1.6, RATE=16000, dataset='iemocap'):
@@ -258,6 +268,7 @@ if __name__ == '__main__':
 
         return train_X, train_y, val_dict
 
+
     # Extract features
     class FeatureExtractor(object):
         def __init__(self, rate):
@@ -270,7 +281,7 @@ if __name__ == '__main__':
                 raise NotImplementedError("{} not in {}!".format(features_to_use, accepted_features_to_use))
             if features_to_use in ('logfbank'):
                 X_features = self.get_logfbank(X)
-            if features_to_use in ('mfcc',26):
+            if features_to_use in ('mfcc', 26):
                 X_features = self.get_mfcc(X)
             if features_to_use in ('fbank'):
                 X_features = self.get_fbank(X)
@@ -329,6 +340,7 @@ if __name__ == '__main__':
         def get_Pase(self, X):
             return X
 
+
     # Read pkl file and generate pkl file
     if (featuresExist == True):
         with open(featuresFileName, 'rb')as f:
@@ -383,6 +395,8 @@ if __name__ == '__main__':
         'fearful': torch.Tensor([6]),
         'disgust': torch.Tensor([7]),
     }
+
+
     # Define data reading class
     class DataSet(Dataset):
         def __init__(self, X, X_NEXT, Y):
@@ -406,6 +420,7 @@ if __name__ == '__main__':
         def __len__(self):
             return len(self.X)
 
+
     # Create a build log file
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
@@ -418,7 +433,7 @@ if __name__ == '__main__':
     logger.addHandler(fh)
 
     # Test set data reading and model training
-    train_data = DataSet(train_X_features,train_X_features_NEXT, train_y)
+    train_data = DataSet(train_X_features, train_X_features_NEXT, train_y)
     train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
 
     # model = HeadFusion(attention_head, attention_hidden, 4)
@@ -434,12 +449,12 @@ if __name__ == '__main__':
         model.train()
         print_loss = 0
         for _, data in enumerate(train_loader):
-            x,x_next,y = data
+            x, x_next, y = data
             if torch.cuda.is_available():
                 x = x.cuda()
                 x_next = x_next.cuda()
                 y = y.cuda()
-            out, _ = model(x.unsqueeze(1),x_next.unsqueeze(1))
+            out, _ = model(x.unsqueeze(1), x_next.unsqueeze(1))
             loss = criterion(out, y.squeeze(1))
             print_loss += loss.data.item() * BATCH_SIZE
             optimizer.zero_grad()
@@ -463,7 +478,7 @@ if __name__ == '__main__':
         # class_total = [0, 0, 0, 0, 0, 0, 0, 0]
         # matrix = np.mat(np.zeros((8, 8)), dtype=int)
         for _, i in enumerate(valid_features_dict):
-            x,x_next, y = valid_features_dict[i]['X'], valid_features_dict[i]['X_NEXT'], valid_features_dict[i]['y']
+            x, x_next, y = valid_features_dict[i]['X'], valid_features_dict[i]['X_NEXT'], valid_features_dict[i]['y']
             x = torch.from_numpy(x).float()
             x_next = torch.from_numpy(x_next).float()
             y = dict[y[0]].long()
@@ -476,7 +491,7 @@ if __name__ == '__main__':
             if (x_next.size(0) == 1):
                 x_next = torch.cat((x_next, x_next), 0)
             # out, _ = model(x.unsqueeze(1))
-            _, out = model(x.unsqueeze(1),x_next.unsqueeze(1))
+            _, out = model(x.unsqueeze(1), x_next.unsqueeze(1))
             # out = model(x)
             pred = torch.Tensor([0, 0, 0, 0])
             # pred = torch.Tensor([0, 0, 0, 0, 0, 0, 0, 0])
@@ -511,4 +526,3 @@ if __name__ == '__main__':
         print('Acc: {:.6f}\nUA:{},{}\nmaxWA:{},maxUA{}'.format(WA, UA, sum(UA) / 4, maxWA, maxUA))
 
         print(matrix)
-
