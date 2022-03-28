@@ -16,7 +16,11 @@ import math
 import logging
 import datetime
 import pandas as pd
+from warnings import simplefilter
+simplefilter(action='ignore', category=FutureWarning)
 
+
+# -i https://pypi.tuna.tsinghua.edu.cn/simple
 # Parallel network model structure
 class Cnn_Transformer(nn.Module):
     def __init__(self, num_emotions):
@@ -24,58 +28,66 @@ class Cnn_Transformer(nn.Module):
         self.transformer_maxpool = nn.MaxPool2d(kernel_size=[1, 4], stride=[1, 4])
         transformer_layer = nn.TransformerEncoderLayer(
             d_model=40,
-            nhead=4,
+            nhead=8,
             dim_feedforward=512,
             dropout=0.5,
             activation='relu'
         )
-        self.transformer_encoder = nn.TransformerEncoder(transformer_layer, num_layers=1)
+        self.transformer_encoder = nn.TransformerEncoder(transformer_layer, num_layers=9)
         self.conv2Dblock1 = nn.Sequential(
-            nn.Conv2d(in_channels=1,  out_channels=16,  kernel_size=3,  stride=1, padding=1),
+            nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(16),
             nn.ReLU(),
 
-            nn.Conv2d(in_channels=16, out_channels=32,  kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
+            # nn.MaxPool2d(kernel_size=2, stride=2),
 
-            nn.Conv2d(in_channels=32, out_channels=48, kernel_size=3,stride=1,padding=1),
-            nn.BatchNorm2d(48),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-
-            nn.Conv2d(in_channels=48, out_channels=64, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
-            nn.Conv2d(in_channels=64, out_channels=96, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=64, out_channels=80, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(80),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+
+            nn.Conv2d(in_channels=80, out_channels=96, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(96),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
-            nn.Conv2d(in_channels=96, out_channels=128, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=96, out_channels=112, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(112),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+
+            nn.Conv2d(in_channels=112, out_channels=128, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Dropout(p=0.5),
         )
-        self.fc1_linear = nn.Linear(1576, num_emotions)  # 1576
+        self.fc1_linear = nn.Linear(808, num_emotions)  # 1576
         self.softmax_out = nn.Softmax(dim=1)
 
-    def forward(self, x, x_next):     # input both features at the same time
-        conv2d_embedding1 = self.conv2Dblock1(x)   
-        conv2d_embedding1 = torch.flatten(conv2d_embedding1, start_dim=1) 
-        x_maxpool = self.transformer_maxpool(x_next)   
-        x_maxpool_reduced = torch.squeeze(x_maxpool, 1)  
-        x_next = x_maxpool_reduced.permute(2, 0, 1)  
-        transformer_output = self.transformer_encoder(x_next) 
-        transformer_embedding = torch.mean(transformer_output, dim=0)  
-        complete_embedding = torch.cat([conv2d_embedding1, transformer_embedding], dim=1) 
-        #, transformer_embedding conv2d_embedding1,
+    def forward(self, x, x_next):  
+        conv2d_embedding1 = self.conv2Dblock1(x)  # conv2d_embedding1为 32*130*2*3
+        conv2d_embedding1 = torch.flatten(conv2d_embedding1, start_dim=1)  # conv2d_embedding1为 32*780
+        x_maxpool = self.transformer_maxpool(x_next)  # x_maxpool为32*1*40*15
+        x_maxpool_reduced = torch.squeeze(x_maxpool, 1)  # x_maxpool_reduced为32*40*15
+        x_next = x_maxpool_reduced.permute(2, 0, 1) 
+        transformer_output = self.transformer_encoder(x_next)  # transformer_output 15*32*40
+        transformer_embedding = torch.mean(transformer_output, dim=0)  # transformer_embedding 32*40
+        complete_embedding = torch.cat([conv2d_embedding1, transformer_embedding],
+                                       dim=1)  # transformer_embedding 32*820
+        # , transformer_embedding conv2d_embedding1,
         output_logits = self.fc1_linear(complete_embedding)
         output_softmax = self.softmax_out(output_logits)
         return output_logits, output_softmax
+
 
 # Set the random seed so that the random number is the same every time
 def setup_seed(seed):
@@ -85,21 +97,22 @@ def setup_seed(seed):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
 
+
 if __name__ == '__main__':
-    SEED = 0
+    SEED = 5
     setup_seed(SEED)
     attention_head = 4
     attention_hidden = 32
     learning_rate = 0.001
-    Epochs = 50
+    Epochs = 40
     BATCH_SIZE = 32
     FEATURES_TO_USE = 'logfbank'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'} 用于cnn的特征
-    FEATURES_TO_USE_NEXT = 'logfbank'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'} 用于transformer的特征
+    FEATURES_TO_USE_NEXT = 'mfcc'  # {'mfcc' , 'logfbank','fbank','spectrogram','melspectrogram'} 用于transformer的特征
     impro_or_script = 'impro'
     # Processed dataset
     featuresFileName_Ravdess = 'features_{}_Ravdess.pkl'.format(FEATURES_TO_USE)
-    featuresFileName = 'features_{}_{}_1.pkl'.format(FEATURES_TO_USE, impro_or_script)
-    featuresExist = True
+    featuresFileName = 'features_{}_{}_fold52222.pkl'.format(FEATURES_TO_USE, impro_or_script)
+    featuresExist = False
     toSaveFeatures = True
     # The storage location of IEMOCAP dataset
     WAV_PATH = "D:\Download\IEMOCAP/"
@@ -110,15 +123,16 @@ if __name__ == '__main__':
     MODEL_NAME_1 = 'HeadFusion-{}'.format(SEED)
     MODEL_NAME_2 = 'CNN_Transformer-{}'.format(SEED)
     # Store parallel model
-    MODEL_PATH = 'models/{}_{}.pth'.format(MODEL_NAME_2, FEATURES_TO_USE)
+    MODEL_PATH = 'models/{}_{}_error_test.pth'.format(MODEL_NAME_2, FEATURES_TO_USE)
+
 
     # data processing
     def process_data(path, t=2, train_overlap=1, val_overlap=1.6, RATE=16000, dataset='iemocap'):
         path = path.rstrip('/')
         wav_files = glob.glob(path + '/*.wav')
         wav_files_aug = glob.glob(path + '/*.wav.5')
-        meta_dict = {}    
-        val_dict = {}     
+        meta_dict = {} 
+        val_dict = {}  
         IEMOCAP_LABEL = {
             '01': 'neutral',
             # '02': 'frustration',
@@ -139,22 +153,116 @@ if __name__ == '__main__':
             '07': 'fearful',
             '08': 'disgust'
         }
-
+        SPEAKER_LABER = {
+            '1': 'Ses01F',
+            '2': 'Ses01M',
+            '3': 'Ses02F',
+            '4': 'Ses02M',
+            '5': 'Ses03F',
+            '6': 'Ses03M',
+            '7': 'Ses04F',
+            '8': 'Ses04M',
+            '9': 'Ses05F',
+            '10': 'Ses05M',
+        }
+        fold1={
+            'Ses01F':'1',
+            'Ses04M':'8',
+        }
+        fold2={
+            'Ses04F':'7',
+            'Ses03M':'6',
+        }
+        fold3={
+            'Ses05F':'9',
+            'Ses01M':'2',
+        }
+        fold4={
+            'Ses03F':'5',
+            'Ses02M':'4',
+        }
+        fold5={
+            'Ses02F': '3',
+            'Ses05M':'10',
+        }
+        # fold1={
+        #     'Ses01F':'1',
+        #     'Ses01M':'2',
+        # }
+        # fold2={
+        #     'Ses02F': '3',
+        #     'Ses02M': '4',
+        # }
+        # fold3={
+        #     'Ses03F': '5',
+        #     'Ses03M': '6',
+        # }
+        # fold4={
+        #     'Ses04F': '7',
+        #     'Ses04M': '8',
+        # }
+        # fold5={
+        #     'Ses05F': '9',
+        #     'Ses05M':'10',
+        # }
         n = len(wav_files)
+        n_aug = len(wav_files_aug)
+        print(n,n_aug)
+        all_files = []
+        all_files_aug = []
+        all_indices = list(np.random.choice(range(n), int(n), replace=False))
+        for i in all_indices:
+            all_files.append(wav_files[i])
+            all_files_aug.append(wav_files_aug[i])
+        #
+        # all_aug_indices = list(np.random.choice(range(n_aug), int(n_aug), replace=False))
+        # for i in all_aug_indices:
+        #      all_files_aug.append(wav_files_aug[i])
         train_files = []
         valid_files = []
-        train_indices = list(np.random.choice(range(n), int(n * 0.8), replace=False))
-        valid_indices = list(set(range(n)) - set(train_indices))
+        # m = []
+        #
+        # def tt():
+        #     tempt = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        #     m = random.sample(tempt, 2)
+        #     return m
+        #
+        # mm = tt()
+        # print(mm)
+        # for i in mm:
+        #     m.append(i)
+        # print(m)
+        # tempt.pop(m[0]-1)
+        # tempt.pop(m[1]-1)
+        # fold = fold2
+        fold = fold2
+        for i, wav_file in enumerate(tqdm(all_files)):
+            speaker = str(os.path.basename(wav_file).split('-')[0])
+            if speaker in fold:
+                valid_files.append(wav_files[i])
+            else:
+                train_files.append(wav_files[i])
+        print(len(train_files))
+        print("123")
+        print(len(valid_files))
+        for i, wav_file_aug in enumerate(tqdm(all_files_aug)):
+            speaker_aug = str(os.path.basename(wav_file_aug).split('-')[0])
+            if speaker_aug in fold:
+                continue
+            else:
+                train_files.append(wav_files_aug[i])
+        # print(len(valid_file )
+        # train_indices = list(np.random.choice(range(n), int(n * 0.8), replace=False))
+        # valid_indices = list(set(range(n)) - set(train_indices))
+        # # for i in train_indices:
         # for i in train_indices:
-        for i in train_indices:
-            train_files.append(wav_files[i])
-            train_files.append(wav_files_aug[i])
-        for i in valid_indices:
-            valid_files.append(wav_files[i])
-
+        #     train_files.append(wav_files[i])
+        #     train_files.append(wav_files_aug[i])
+        # for i in valid_indices:
+        #     valid_files.append(wav_files[i])
 
         print("constructing meta dictionary for {}...".format(path))
-        # Process the data in the training set
+
         for i, wav_file in enumerate(tqdm(train_files)):  
             label = str(os.path.basename(wav_file).split('-')[2])
             if (dataset == 'iemocap'):
@@ -185,7 +293,7 @@ if __name__ == '__main__':
                 'y': y1,
                 'path': wav_file
             }
-
+        print(len(meta_dict))
         print("building X, y...")
         train_X = []
         train_y = []
@@ -231,6 +339,7 @@ if __name__ == '__main__':
 
         return train_X, train_y, val_dict  
 
+
     # Extract features
     class FeatureExtractor(object):
         def __init__(self, rate):
@@ -243,7 +352,7 @@ if __name__ == '__main__':
                 raise NotImplementedError("{} not in {}!".format(features_to_use, accepted_features_to_use))
             if features_to_use in ('logfbank'):
                 X_features = self.get_logfbank(X)
-            if features_to_use in ('mfcc',26):
+            if features_to_use in ('mfcc', 26):
                 X_features = self.get_mfcc(X)
             if features_to_use in ('fbank'):
                 X_features = self.get_fbank(X)
@@ -257,7 +366,7 @@ if __name__ == '__main__':
 
         def get_logfbank(self, X):
             def _get_logfbank(x):
-                out = logfbank(signal=x, samplerate=self.rate,winlen=0.040, winstep=0.010, nfft=1024, highfreq=4000,
+                out = logfbank(signal=x, samplerate=self.rate, winlen=0.040, winstep=0.010, nfft=1024, highfreq=4000,
                                nfilt=40)
                 return out
 
@@ -312,19 +421,19 @@ if __name__ == '__main__':
         valid_features_dict = features['val_dict']
     else:
         logging.info("creating meta dict...")
-        train_X, train_y, val_dict = process_data(WAV_PATH, t=2, train_overlap=1)
+        train_X, train_y, val_dict = process_data(WAV_PATH)
         print(train_X.shape)
-        print(len(val_dict))
+        # print(val_dict)
 
         print("getting features")
         logging.info('getting features')
         feature_extractor = FeatureExtractor(rate=RATE)
         train_X_features = feature_extractor.get_features(FEATURES_TO_USE, train_X)
-        train_X_features_NEXT = feature_extractor.get_features(FEATURES_TO_USE_NEXT,train_X)
-        valid_features_dict = {}  # Used to store various features extracted from the validation set
+        train_X_features_NEXT = feature_extractor.get_features(FEATURES_TO_USE_NEXT, train_X)
+        valid_features_dict = {} 
         for _, i in enumerate(val_dict):
             X1 = feature_extractor.get_features(FEATURES_TO_USE, val_dict[i]['X'])
-            X1_NEXT = feature_extractor.get_features(FEATURES_TO_USE_NEXT,val_dict[i]['X'])
+            X1_NEXT = feature_extractor.get_features(FEATURES_TO_USE_NEXT, val_dict[i]['X'])
             valid_features_dict[i] = {
                 'X': X1,
                 'X_NEXT': X1_NEXT,
@@ -358,9 +467,10 @@ if __name__ == '__main__':
         'disgust': torch.Tensor([7]),
     }
 
+
     # Define data reading class
     class DataSet(Dataset):
-        def __init__(self, X,X_NEXT, Y):
+        def __init__(self, X, X_NEXT, Y):
             self.X = X
             self.X_NEXT = X_NEXT
             self.Y = Y
@@ -376,10 +486,11 @@ if __name__ == '__main__':
             y = self.Y[index]
             y = dict[y]
             y = y.long()
-            return x,x_next,y
+            return x, x_next, y
 
         def __len__(self):
             return len(self.X)
+
 
     # Create a build log file
     logger = logging.getLogger()
@@ -391,13 +502,13 @@ if __name__ == '__main__':
     formatter = logging.Formatter("%(asctime)s - %(filename)s[line:%(lineno)d] - %(levelname)s: %(message)s")
     fh.setFormatter(formatter)
     logger.addHandler(fh)
-    
+
     # Test set data reading and model training
-    train_data = DataSet(train_X_features,train_X_features_NEXT, train_y)
+    train_data = DataSet(train_X_features, train_X_features_NEXT, train_y)
     train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
 
     # model = HeadFusion(attention_head, attention_hidden, 4)
-    model = Cnn_Transformer(num_emotions = 4)
+    model = Cnn_Transformer(num_emotions=4)
     if torch.cuda.is_available():
         model = model.cuda()
     criterion = nn.CrossEntropyLoss()
@@ -409,12 +520,12 @@ if __name__ == '__main__':
         model.train()
         print_loss = 0
         for _, data in enumerate(train_loader):
-            x,x_next, y = data
+            x, x_next, y = data
             if torch.cuda.is_available():
                 x = x.cuda()
                 x_next = x_next.cuda()
                 y = y.cuda()
-            out, _ = model(x.unsqueeze(1),x_next.unsqueeze(1))
+            out, _ = model(x.unsqueeze(1), x_next.unsqueeze(1))
             loss = criterion(out, y.squeeze(1))
             print_loss += loss.data.item() * BATCH_SIZE
             optimizer.zero_grad()
@@ -438,7 +549,7 @@ if __name__ == '__main__':
         # class_total = [0, 0, 0, 0, 0, 0, 0, 0]
         # matrix = np.mat(np.zeros((8, 8)), dtype=int)
         for _, i in enumerate(valid_features_dict):
-            x,x_next, y = valid_features_dict[i]['X'], valid_features_dict[i]['X_NEXT'], valid_features_dict[i]['y']
+            x, x_next, y = valid_features_dict[i]['X'], valid_features_dict[i]['X_NEXT'], valid_features_dict[i]['y']
             x = torch.from_numpy(x).float()
             x_next = torch.from_numpy(x_next).float()
             y = dict[y[0]].long()
@@ -451,7 +562,7 @@ if __name__ == '__main__':
             if (x_next.size(0) == 1):
                 x_next = torch.cat((x_next, x_next), 0)
             # out, _ = model(x.unsqueeze(1))
-            _, out = model(x.unsqueeze(1),x_next.unsqueeze(1))
+            _, out = model(x.unsqueeze(1), x_next.unsqueeze(1))
             # out = model(x)
             pred = torch.Tensor([0, 0, 0, 0])
             # pred = torch.Tensor([0, 0, 0, 0, 0, 0, 0, 0])
@@ -486,4 +597,3 @@ if __name__ == '__main__':
         print('Acc: {:.6f}\nUA:{},{}\nmaxWA:{},maxUA{}'.format(WA, UA, sum(UA) / 4, maxWA, maxUA))
 
         print(matrix)
-
