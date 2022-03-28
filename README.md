@@ -8,4 +8,4 @@
 
 #pre-transformer is used to store the pre-trained encoder model
 
-Pkl file stores the link to the pkl file used in the experiment
+
