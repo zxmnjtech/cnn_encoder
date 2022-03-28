@@ -8,4 +8,5 @@
 
 #pre-transformer is used to store the pre-trained encoder model
 
+#changelengthinput.py is used to experiment with input of different voice durations
 
